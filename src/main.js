@@ -97,6 +97,7 @@ let state = {
 
 const uiState = {
   activeTab: "manage", // manage | sms
+  qrSession: null, // {stop: fn}
 };
 
 function loadState() {
@@ -276,6 +277,170 @@ function addItem(itemId, name) {
   alert(`자산 등록 완료: ${itemId} - ${name}`);
 }
 
+function removeItem(itemId, note) {
+  itemId = (itemId || "").trim();
+  note = (note || "").trim();
+
+  if (!itemId) {
+    alert("삭제할 자산을 선택하세요.");
+    return;
+  }
+
+  const idx = state.items.findIndex((i) => i.itemId === itemId);
+  if (idx === -1) {
+    alert(`자산 ${itemId} 가 존재하지 않습니다.`);
+    return;
+  }
+
+  const item = state.items[idx];
+  if (item.status === "borrowed") {
+    alert("대여중인 자산은 삭제할 수 없습니다. 먼저 반납 처리하세요.");
+    return;
+  }
+
+  state.items.splice(idx, 1);
+  addTx({ itemId, action: "remove", note });
+  saveState();
+  rerenderAll();
+  alert(`자산 삭제 완료: ${itemId}`);
+}
+
+function bulkAddItemsFromCsv(file) {
+  if (!file) {
+    alert("업로드할 CSV 파일을 선택하세요.");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const text = reader.result || "";
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+      if (lines.length === 0) {
+        alert("CSV 내용이 비어 있습니다.");
+        return;
+      }
+
+      let added = 0;
+      lines.forEach((line, idx) => {
+        // 허용 포맷: itemId,group  (엑셀에서 CSV 저장 시 두 칸)
+        const parts = line.split(/[,\t]/).map((p) => p.trim());
+        if (parts.length < 2) return;
+        const [itemIdRaw, groupRaw] = parts;
+        if (!itemIdRaw || !groupRaw) return;
+        if (idx === 0 && itemIdRaw.toLowerCase().includes("item")) {
+          // 헤더로 판단되면 건너뜀
+          return;
+        }
+        const itemId = itemIdRaw;
+        const group = groupRaw;
+        const exists = state.items.find((i) => i.itemId === itemId);
+        if (exists) return;
+        state.items.push({ itemId, group, status: "available" });
+        added += 1;
+      });
+
+      saveState();
+      rerenderAll();
+      alert(`CSV 처리 완료: ${added}건 추가되었습니다.`);
+    } catch (err) {
+      console.error(err);
+      alert("CSV 파싱 중 오류가 발생했습니다. 파일 형식을 확인하세요.");
+    }
+  };
+  reader.readAsText(file, "utf-8");
+}
+
+function stopQrSession() {
+  if (uiState.qrSession?.stop) {
+    uiState.qrSession.stop();
+  }
+  uiState.qrSession = null;
+}
+
+async function startQrSession(videoEl, onResult) {
+  stopQrSession();
+  if (!("BarcodeDetector" in window)) {
+    alert("이 브라우저는 QR/바코드 인식을 지원하지 않습니다. 휴대폰/크롬을 사용하거나 스캐너 입력을 이용하세요.");
+    return;
+  }
+
+  const detector = new BarcodeDetector({
+    formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "upc_a"],
+  });
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+    });
+    videoEl.srcObject = stream;
+    await videoEl.play();
+
+    let active = true;
+    const tick = async () => {
+      if (!active) return;
+      try {
+        const codes = await detector.detect(videoEl);
+        if (codes && codes.length) {
+          const value = codes[0].rawValue?.trim();
+          if (value) {
+            active = false;
+            onResult(value);
+            stopQrSession();
+            return;
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      if (active) requestAnimationFrame(tick);
+    };
+
+    requestAnimationFrame(tick);
+
+    uiState.qrSession = {
+      stop: () => {
+        active = false;
+        stream.getTracks().forEach((t) => t.stop());
+        if (videoEl) {
+          videoEl.pause();
+          videoEl.srcObject = null;
+        }
+      },
+    };
+  } catch (err) {
+    console.error(err);
+    alert("카메라 접근이 거부되었거나 사용할 수 없습니다.");
+  }
+}
+
+function applyScannedItem(itemId) {
+  const trimmed = (itemId || "").trim();
+  if (!trimmed) return;
+
+  const target = state.items.find((i) => i.itemId === trimmed);
+  if (!target) {
+    alert(`스캔 결과 ${trimmed} 가 자산 목록에 없습니다.`);
+    return;
+  }
+
+  // 상태에 따라 자동 채워 넣기
+  if (target.status === "available") {
+    const sel = document.getElementById("borrow-item-select");
+    if (sel) sel.value = trimmed;
+    alert(`스캔 완료: ${trimmed} (대여 가능)`);
+  } else if (target.status === "borrowed") {
+    const sel = document.getElementById("return-item-select");
+    if (sel) sel.value = trimmed;
+    alert(`스캔 완료: ${trimmed} (반납 대상)`);
+  } else {
+    alert(`스캔 완료: ${trimmed} (상태: ${target.status})`);
+  }
+}
+
 // ===== 5. 지연 대여 계산 =====
 function getOverdueList(minDays = 3) {
   const result = [];
@@ -394,6 +559,7 @@ function renderHistory() {
     if (row.action === "borrow") tagSpan.classList.add("tag-borrow");
     else if (row.action === "return" || row.action === "restore")
       tagSpan.classList.add("tag-return");
+    else if (row.action === "remove") tagSpan.classList.add("tag-damage");
     else tagSpan.classList.add("tag-damage");
     tagSpan.textContent = row.action;
     li.appendChild(tagSpan);
@@ -534,6 +700,8 @@ async function generateOverdueSms(overdue, extraNote) {
 
 // ===== 10. 렌더 =====
 function rerenderAll() {
+  // 탭/렌더 변경 시 카메라 세션 종료
+  stopQrSession();
   render(); // 전체를 다시 그림 (단순하지만 과제용으론 충분)
 }
 
@@ -589,6 +757,13 @@ function render() {
     )
     .join("");
 
+  const removeItemOptions = allItems
+    .map(
+      (i) =>
+        `<option value="${i.itemId}">${i.itemId} - ${i.group} [${i.status}]</option>`
+    )
+    .join("");
+
   const historyItemOptions = allItems
     .map(
       (i) =>
@@ -621,7 +796,7 @@ function render() {
           <img src="/ysrail-logo.png" alt="용산철도고 로고" />
         </div>
         <div class="app-title-block">
-          <div class="school-name">용산철도고등학교 · 철도전자통신과</div>
+          <div class="school-name">용산철도고등학교 · 철도전자통신과 / 자동차과</div>
           <div class="app-title">Smart Lab Manager</div>
           <div class="app-subtitle">
             실습 기자재 대여 · 반납 · 고장 · 분실 관리 웹 프로토타입
@@ -776,6 +951,32 @@ function render() {
 
           <div class="card" style="margin-top:14px;">
             <div class="card-header">
+              <span>자산 삭제</span>
+              <span class="badge">Remove</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">삭제할 자산</label>
+                  <select id="remove-item-select" class="select">
+                    <option value="">자산 선택</option>
+                    ${removeItemOptions}
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="label">메모 (선택)</label>
+                  <input id="remove-note" class="input" placeholder="예: 노후 폐기, 분실 확정" />
+                </div>
+              </div>
+              <button id="btn-remove-item" class="btn btn-outline">
+                자산 삭제
+              </button>
+              <p class="small-tip">대여중인 자산은 삭제할 수 없습니다.</p>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-header">
               <span>자산 등록 (데모용)</span>
               <span class="badge">Admin</span>
             </div>
@@ -795,6 +996,62 @@ function render() {
               </button>
               <p class="small-tip">
                 실제 운영 시에는 관리자 전용 화면으로 분리하고, CSV/QR 연동으로 일괄 등록할 수 있습니다.
+              </p>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-header">
+              <span>엑셀(CSV) 일괄 등록</span>
+              <span class="badge-soft">Bulk Import</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">CSV 파일</label>
+                  <input type="file" id="bulk-file" class="input" accept=".csv" />
+                </div>
+              </div>
+              <button id="btn-bulk-upload" class="btn btn-secondary">
+                CSV 업로드
+              </button>
+              <p class="small-tip">
+                엑셀에서 <b>CSV(쉼표로 분리)</b>로 저장 후 업로드하세요. 컬럼: itemId,자산명
+              </p>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-header">
+              <span>QR / 바코드 스캔</span>
+              <span class="badge-soft">Scan</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">스캔 시작</label>
+                  <button id="btn-start-scan" class="btn btn-primary" type="button">
+                    카메라 스캔 시작
+                  </button>
+                  <button id="btn-stop-scan" class="btn btn-outline" type="button" style="margin-left:6px;">
+                    중지
+                  </button>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">결과 / 수동 입력</label>
+                  <input id="qr-manual" class="input" placeholder="스캐너 입력 또는 수동 입력" />
+                  <button id="btn-apply-qr" class="btn btn-success" type="button" style="margin-top:6px;">
+                    선택 항목에 적용
+                  </button>
+                </div>
+              </div>
+              <div style="margin-top:8px;">
+                <video id="qr-video" style="width:100%; border:1px solid #1f2937; border-radius:6px;" muted playsinline></video>
+              </div>
+              <p class="small-tip" style="margin-top:6px;">
+                크롬/안드로이드에서 카메라 스캔을 사용하거나, 핸드스캐너로 입력 가능합니다.
               </p>
             </div>
           </div>
@@ -956,6 +1213,43 @@ function render() {
     const iid = document.getElementById("restore-item-select").value;
     const note = document.getElementById("restore-note").value;
     restoreItem(iid, note, "restore");
+  });
+
+  document.getElementById("btn-remove-item").addEventListener("click", () => {
+    const iid = document.getElementById("remove-item-select").value;
+    const note = document.getElementById("remove-note").value;
+    if (!iid) {
+      alert("삭제할 자산을 선택하세요.");
+      return;
+    }
+    const confirmed = confirm(`${iid} 자산을 삭제하시겠습니까?`);
+    if (!confirmed) return;
+    removeItem(iid, note);
+  });
+
+  document.getElementById("btn-bulk-upload").addEventListener("click", () => {
+    const fileInput = document.getElementById("bulk-file");
+    const file = fileInput?.files?.[0];
+    bulkAddItemsFromCsv(file);
+  });
+
+  const qrVideo = document.getElementById("qr-video");
+  const qrManual = document.getElementById("qr-manual");
+
+  document.getElementById("btn-start-scan").addEventListener("click", () => {
+    if (!qrVideo) return;
+    startQrSession(qrVideo, (value) => {
+      if (qrManual) qrManual.value = value;
+      applyScannedItem(value);
+    });
+  });
+
+  document.getElementById("btn-stop-scan").addEventListener("click", () => {
+    stopQrSession();
+  });
+
+  document.getElementById("btn-apply-qr").addEventListener("click", () => {
+    applyScannedItem(qrManual ? qrManual.value : "");
   });
 
   document.getElementById("btn-refresh").addEventListener("click", () => {
