@@ -88,6 +88,7 @@ function makeSeedItems() {
 
 // ===== 3. 상태 관리 / 저장 =====
 const STORAGE_KEY = "smart-lab-manager-data-v4";
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASS || "admin123";
 
 let state = {
   students: [],
@@ -98,6 +99,7 @@ let state = {
 const uiState = {
   activeTab: "manage", // manage | sms
   qrSession: null, // {stop: fn}
+  adminAuthed: false,
 };
 
 function loadState() {
@@ -257,6 +259,10 @@ function restoreItem(itemId, note, restoreType = "restore") {
 }
 
 function addItem(itemId, name) {
+  if (!uiState.adminAuthed) {
+    alert("관리자 로그인이 필요합니다.");
+    return;
+  }
   itemId = (itemId || "").trim();
   name = (name || "").trim();
 
@@ -278,6 +284,10 @@ function addItem(itemId, name) {
 }
 
 function removeItem(itemId, note) {
+  if (!uiState.adminAuthed) {
+    alert("관리자 로그인이 필요합니다.");
+    return;
+  }
   itemId = (itemId || "").trim();
   note = (note || "").trim();
 
@@ -306,6 +316,10 @@ function removeItem(itemId, note) {
 }
 
 function bulkAddItemsFromCsv(file) {
+  if (!uiState.adminAuthed) {
+    alert("관리자 로그인이 필요합니다.");
+    return;
+  }
   if (!file) {
     alert("업로드할 CSV 파일을 선택하세요.");
     return;
@@ -1065,10 +1079,14 @@ function render() {
         </div>
 
         <div id="tab-admin" style="display:${activeTab === "admin" ? "block" : "none"};">
+          ${
+            uiState.adminAuthed
+              ? `
           <div class="card" style="margin-top:4px;">
             <div class="card-header">
               <span>자산 등록 (단건)</span>
               <span class="badge">Add</span>
+              <button id="btn-admin-logout" class="btn btn-outline" type="button" style="margin-left:auto;">로그아웃</button>
             </div>
             <div>
               <div class="form-row">
@@ -1133,6 +1151,28 @@ function render() {
               </p>
             </div>
           </div>
+          `
+              : `
+          <div class="card" style="margin-top:4px;">
+            <div class="card-header">
+              <span>관리자 로그인</span>
+              <span class="badge">Admin</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field" style="width:100%;">
+                  <label class="label">관리자 비밀번호</label>
+                  <input id="admin-pass" type="password" class="input" placeholder="관리자 비밀번호" />
+                </div>
+              </div>
+              <button id="btn-admin-login" class="btn btn-primary">
+                로그인
+              </button>
+              <p class="small-tip">등록/삭제/일괄등록은 관리자만 가능합니다.</p>
+            </div>
+          </div>
+          `
+          }
         </div>
 
         <div id="tab-sms" style="display:${activeTab === "sms" ? "block" : "none"};">
@@ -1333,6 +1373,33 @@ function render() {
       const fileInput = document.getElementById("bulk-file");
       const file = fileInput?.files?.[0];
       bulkAddItemsFromCsv(file);
+    });
+  }
+
+  const btnAdminLogin = document.getElementById("btn-admin-login");
+  if (btnAdminLogin) {
+    btnAdminLogin.addEventListener("click", () => {
+      const pass = document.getElementById("admin-pass")?.value || "";
+      if (!pass) {
+        alert("비밀번호를 입력하세요.");
+        return;
+      }
+      if (pass === ADMIN_PASSWORD) {
+        uiState.adminAuthed = true;
+        alert("관리자 로그인 성공");
+        rerenderAll();
+      } else {
+        alert("비밀번호가 올바르지 않습니다.");
+      }
+    });
+  }
+
+  const btnAdminLogout = document.getElementById("btn-admin-logout");
+  if (btnAdminLogout) {
+    btnAdminLogout.addEventListener("click", () => {
+      uiState.adminAuthed = false;
+      alert("로그아웃되었습니다.");
+      rerenderAll();
     });
   }
 
