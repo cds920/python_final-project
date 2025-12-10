@@ -834,17 +834,6 @@ function render() {
           .join("");
 
   app.innerHTML = `
-    <style>
-      body { background:#f6f8fb; color:#0f172a; }
-      .app-header { background:#e8eef7; color:#0f172a; }
-      .card { background:#ffffff; box-shadow:0 8px 18px rgba(15,23,42,0.08); border:1px solid #e5e7eb; }
-      .grid { gap:14px; }
-      .tab-bar .btn.active { background:#0f172a !important; color:#fff !important; border-color:#0f172a; }
-      .badge, .badge-soft { background:#eef2ff; color:#312e81; border:1px solid #c7d2fe; }
-      .btn-primary { background:#2563eb; border-color:#2563eb; }
-      .btn-outline { border-color:#cbd5e1; color:#0f172a; }
-      .stat-value { color:#0f172a; }
-    </style>
     <header class="app-header">
       <div class="app-header-left">
         <div class="app-logo-wrap">
@@ -863,38 +852,6 @@ function render() {
         <div>※ 실제 운영 시 서버·DB 연동 및 AI/QR 기능 확장 가능</div>
       </div>
     </header>
-
-    <div class="card" style="margin:12px 0 10px;">
-      <div class="card-header">
-        <span>실습 기자재 현황</span>
-        <button id="btn-refresh" class="btn btn-outline" type="button">
-          새로고침
-        </button>
-      </div>
-      <div class="stats">
-        <div class="stat-box">
-          <div class="stat-label">총 자산</div>
-          <div class="stat-value" id="stat-total">-</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">대여중</div>
-          <div class="stat-value" id="stat-borrowed">-</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">고장</div>
-          <div class="stat-value" id="stat-damaged">-</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">분실</div>
-          <div class="stat-value" id="stat-lost">-</div>
-        </div>
-      </div>
-      <div>
-        <div class="label" style="margin-top:4px;">고장/분실 상위 자산</div>
-        <ul id="top-issue-list" style="padding-left:16px; margin-top:2px;"></ul>
-      </div>
-      <div id="item-table"></div>
-    </div>
 
     <div class="tab-bar" style="margin:10px 0 6px; display:flex; gap:8px;">
       <button
@@ -926,10 +883,9 @@ function render() {
         최근 이력
       </button>
     </div>
-
-    <div id="tab-manage" style="display:${activeTab === "manage" ? "block" : "none"};">
-      <div class="grid">
-        <div>
+    <div class="grid">
+      <div style="min-width:0;">
+        <div id="tab-manage" style="display:${activeTab === "manage" ? "block" : "none"};">
           <div class="card">
             <div class="card-header">
               <span>대여</span>
@@ -1089,14 +1045,7 @@ function render() {
           </div>
         </div>
 
-        <div>
-        </div>
-      </div>
-    </div>
-
-    <div id="tab-admin" style="display:${activeTab === "admin" ? "block" : "none"};">
-      <div class="grid">
-        <div>
+        <div id="tab-admin" style="display:${activeTab === "admin" ? "block" : "none"};">
           <div class="card" style="margin-top:4px;">
             <div class="card-header">
               <span>자산 등록 (단건)</span>
@@ -1166,69 +1115,103 @@ function render() {
             </div>
           </div>
         </div>
-      </div>
-    </div>
 
-    <div id="tab-sms" style="display:${activeTab === "sms" ? "block" : "none"};">
-      <div class="card">
-        <div class="card-header">
-          <span>지연 대여 안내 문자 (AI)</span>
-          <span class="badge-soft">Overdue SMS</span>
-        </div>
-        <div>
-          <div class="form-row">
-            <div class="form-field">
-              <label class="label">지연 항목 선택 (3일 이상)</label>
-              <select id="overdue-select" class="select">
-                ${overdueOptions}
-              </select>
+        <div id="tab-sms" style="display:${activeTab === "sms" ? "block" : "none"};">
+          <div class="card">
+            <div class="card-header">
+              <span>지연 대여 안내 문자 (AI)</span>
+              <span class="badge-soft">Overdue SMS</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">지연 항목 선택 (3일 이상)</label>
+                  <select id="overdue-select" class="select">
+                    ${overdueOptions}
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">추가 안내 사항 (선택)</label>
+                  <input id="overdue-extra" class="input" placeholder="예: 내일 5교시까지 반납, 미반납 시 생활기록부 반영 등" />
+                </div>
+              </div>
+              <button id="btn-generate-sms" class="btn btn-primary" type="button">
+                AI로 문자 생성
+              </button>
+              <button id="btn-copy-sms" class="btn btn-outline" type="button" style="margin-left:6px;">
+                내용 복사
+              </button>
+              <p class="small-tip" style="margin-top:6px;">
+                실제 발송은 문자/알림 시스템에서 직접 하며, 이 화면에서는 <b>문구만 자동 작성</b>합니다.
+              </p>
+              <textarea id="sms-output" class="sms-output" placeholder="여기에 생성된 문자가 표시됩니다."></textarea>
             </div>
           </div>
-          <div class="form-row">
-            <div class="form-field">
-              <label class="label">추가 안내 사항 (선택)</label>
-              <input id="overdue-extra" class="input" placeholder="예: 내일 5교시까지 반납, 미반납 시 생활기록부 반영 등" />
+        </div>
+
+        <div id="tab-history" style="display:${activeTab === "history" ? "block" : "none"};">
+          <div class="card">
+            <div class="card-header">
+              <span>최근 이력 (최대 80개)</span>
             </div>
+            <div class="form-row" style="margin-bottom:8px;">
+              <div class="form-field">
+                <label class="label">학생 필터</label>
+                <select id="history-student-select" class="select">
+                  <option value="">전체 학생</option>
+                  ${studentOptionsAll}
+                </select>
+              </div>
+              <div class="form-field">
+                <label class="label">자산 필터</label>
+                <select id="history-item-select" class="select">
+                  <option value="">전체 자산</option>
+                  ${historyItemOptions}
+                </select>
+              </div>
+            </div>
+            <button id="btn-history-reset" class="btn btn-outline" type="button" style="margin-bottom:6px;">
+              필터 초기화
+            </button>
+            <ul id="history-list" class="history-list"></ul>
           </div>
-          <button id="btn-generate-sms" class="btn btn-primary" type="button">
-            AI로 문자 생성
-          </button>
-          <button id="btn-copy-sms" class="btn btn-outline" type="button" style="margin-left:6px;">
-            내용 복사
-          </button>
-          <p class="small-tip" style="margin-top:6px;">
-            실제 발송은 문자/알림 시스템에서 직접 하며, 이 화면에서는 <b>문구만 자동 작성</b>합니다.
-          </p>
-          <textarea id="sms-output" class="sms-output" placeholder="여기에 생성된 문자가 표시됩니다."></textarea>
         </div>
       </div>
-    </div>
 
-    <div id="tab-history" style="display:${activeTab === "history" ? "block" : "none"};">
-      <div class="card">
-        <div class="card-header">
-          <span>최근 이력 (최대 80개)</span>
-        </div>
-        <div class="form-row" style="margin-bottom:8px;">
-          <div class="form-field">
-            <label class="label">학생 필터</label>
-            <select id="history-student-select" class="select">
-              <option value="">전체 학생</option>
-              ${studentOptionsAll}
-            </select>
+      <div>
+        <div class="card">
+          <div class="card-header">
+            <span>실습 기자재 현황</span>
+            <button id="btn-refresh" class="btn btn-outline" type="button">
+              새로고침
+            </button>
           </div>
-          <div class="form-field">
-            <label class="label">자산 필터</label>
-            <select id="history-item-select" class="select">
-              <option value="">전체 자산</option>
-              ${historyItemOptions}
-            </select>
+          <div class="stats">
+            <div class="stat-box">
+              <div class="stat-label">총 자산</div>
+              <div class="stat-value" id="stat-total">-</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">대여중</div>
+              <div class="stat-value" id="stat-borrowed">-</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">고장</div>
+              <div class="stat-value" id="stat-damaged">-</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">분실</div>
+              <div class="stat-value" id="stat-lost">-</div>
+            </div>
           </div>
+          <div>
+            <div class="label" style="margin-top:4px;">고장/분실 상위 자산</div>
+            <ul id="top-issue-list" style="padding-left:16px; margin-top:2px;"></ul>
+          </div>
+          <div id="item-table"></div>
         </div>
-        <button id="btn-history-reset" class="btn btn-outline" type="button" style="margin-bottom:6px;">
-          필터 초기화
-        </button>
-        <ul id="history-list" class="history-list"></ul>
       </div>
     </div>
   `;
