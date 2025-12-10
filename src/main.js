@@ -363,16 +363,12 @@ function stopQrSession() {
 
 async function startQrSession(videoEl, onResult) {
   stopQrSession();
-  if (!("BarcodeDetector" in window)) {
-    alert("이 브라우저는 QR/바코드 인식을 지원하지 않습니다. 휴대폰/크롬을 사용하거나 스캐너 입력을 이용하세요.");
-    return;
-  }
 
-  const detector = new BarcodeDetector({
-    formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "upc_a"],
-  });
+  const startWithBarcodeDetector = async () => {
+    const detector = new BarcodeDetector({
+      formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "upc_a"],
+    });
 
-  try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment" },
     });
@@ -411,9 +407,57 @@ async function startQrSession(videoEl, onResult) {
         }
       },
     };
+  };
+
+  const startWithHtml5Qrcode = async () => {
+    const ensureScript = () =>
+      new Promise((resolve, reject) => {
+        if (window.Html5Qrcode) return resolve();
+        const s = document.createElement("script");
+        s.src =
+          "https://unpkg.com/html5-qrcode@2.3.10/dist/html5-qrcode.min.js";
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error("html5-qrcode 로드 실패"));
+        document.head.appendChild(s);
+      });
+
+    await ensureScript();
+    const targetId = "qr-html5-canvas";
+    const html5 = new Html5Qrcode(targetId);
+    await html5.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 240 },
+      (decodedText) => {
+        const val = (decodedText || "").trim();
+        if (val) {
+          onResult(val);
+          stopQrSession();
+        }
+      },
+      () => {}
+    );
+
+    uiState.qrSession = {
+      stop: () => {
+        html5
+          .stop()
+          .catch(() => {})
+          .finally(() => {
+            html5.clear().catch(() => {});
+          });
+      },
+    };
+  };
+
+  try {
+    if ("BarcodeDetector" in window && videoEl) {
+      await startWithBarcodeDetector();
+    } else {
+      await startWithHtml5Qrcode();
+    }
   } catch (err) {
     console.error(err);
-    alert("카메라 접근이 거부되었거나 사용할 수 없습니다.");
+    alert("카메라 접근이 거부되었거나 사용할 수 없습니다. 스캐너나 수동 입력을 이용하세요.");
   }
 }
 
@@ -790,6 +834,17 @@ function render() {
           .join("");
 
   app.innerHTML = `
+    <style>
+      body { background:#f6f8fb; color:#0f172a; }
+      .app-header { background:#e8eef7; color:#0f172a; }
+      .card { background:#ffffff; box-shadow:0 8px 18px rgba(15,23,42,0.08); border:1px solid #e5e7eb; }
+      .grid { gap:14px; }
+      .tab-bar .btn.active { background:#0f172a !important; color:#fff !important; border-color:#0f172a; }
+      .badge, .badge-soft { background:#eef2ff; color:#312e81; border:1px solid #c7d2fe; }
+      .btn-primary { background:#2563eb; border-color:#2563eb; }
+      .btn-outline { border-color:#cbd5e1; color:#0f172a; }
+      .stat-value { color:#0f172a; }
+    </style>
     <header class="app-header">
       <div class="app-header-left">
         <div class="app-logo-wrap">
@@ -809,6 +864,38 @@ function render() {
       </div>
     </header>
 
+    <div class="card" style="margin:12px 0 10px;">
+      <div class="card-header">
+        <span>실습 기자재 현황</span>
+        <button id="btn-refresh" class="btn btn-outline" type="button">
+          새로고침
+        </button>
+      </div>
+      <div class="stats">
+        <div class="stat-box">
+          <div class="stat-label">총 자산</div>
+          <div class="stat-value" id="stat-total">-</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">대여중</div>
+          <div class="stat-value" id="stat-borrowed">-</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">고장</div>
+          <div class="stat-value" id="stat-damaged">-</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">분실</div>
+          <div class="stat-value" id="stat-lost">-</div>
+        </div>
+      </div>
+      <div>
+        <div class="label" style="margin-top:4px;">고장/분실 상위 자산</div>
+        <ul id="top-issue-list" style="padding-left:16px; margin-top:2px;"></ul>
+      </div>
+      <div id="item-table"></div>
+    </div>
+
     <div class="tab-bar" style="margin:10px 0 6px; display:flex; gap:8px;">
       <button
         class="btn btn-outline tab-btn ${activeTab === "manage" ? "active" : ""}"
@@ -823,6 +910,20 @@ function render() {
         style="${activeTab === "sms" ? "background:#111827;color:white;" : ""}"
       >
         지연 문자
+      </button>
+      <button
+        class="btn btn-outline tab-btn ${activeTab === "admin" ? "active" : ""}"
+        data-tab="admin"
+        style="${activeTab === "admin" ? "background:#111827;color:white;" : ""}"
+      >
+        자산 등록/삭제
+      </button>
+      <button
+        class="btn btn-outline tab-btn ${activeTab === "history" ? "active" : ""}"
+        data-tab="history"
+        style="${activeTab === "history" ? "background:#111827;color:white;" : ""}"
+      >
+        최근 이력
       </button>
     </div>
 
@@ -951,6 +1052,75 @@ function render() {
 
           <div class="card" style="margin-top:14px;">
             <div class="card-header">
+              <span>QR / 바코드 스캔</span>
+              <span class="badge-soft">Scan</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">스캔 시작</label>
+                  <button id="btn-start-scan" class="btn btn-primary" type="button">
+                    카메라 스캔 시작
+                  </button>
+                  <button id="btn-stop-scan" class="btn btn-outline" type="button" style="margin-left:6px;">
+                    중지
+                  </button>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">결과 / 수동 입력</label>
+                  <input id="qr-manual" class="input" placeholder="스캐너 입력 또는 수동 입력" />
+                  <button id="btn-apply-qr" class="btn btn-success" type="button" style="margin-top:6px;">
+                    선택 항목에 적용
+                  </button>
+                </div>
+              </div>
+              <div style="margin-top:8px;">
+                <div id="qr-video-box" style="width:100%; border:1px solid #cbd5e1; border-radius:6px; background:#f8fafc; position:relative; padding:6px;">
+                  <video id="qr-video-feed" style="width:100%; border-radius:4px;" muted playsinline></video>
+                  <div id="qr-html5-canvas" style="width:100%; min-height:220px;"></div>
+                </div>
+              </div>
+              <p class="small-tip" style="margin-top:6px;">
+                크롬/안드로이드에서 카메라 스캔을 사용하거나, 핸드스캐너·수동 입력을 이용하세요.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-admin" style="display:${activeTab === "admin" ? "block" : "none"};">
+      <div class="grid">
+        <div>
+          <div class="card" style="margin-top:4px;">
+            <div class="card-header">
+              <span>자산 등록 (단건)</span>
+              <span class="badge">Add</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">자산ID</label>
+                  <input id="new-item-id" class="input" placeholder="예: X001-01" />
+                </div>
+                <div class="form-field">
+                  <label class="label">자산명</label>
+                  <input id="new-item-name" class="input" placeholder="예: 신형 장비" />
+                </div>
+              </div>
+              <button id="btn-add-item" class="btn btn-secondary">
+                자산 추가
+              </button>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-header">
               <span>자산 삭제</span>
               <span class="badge">Remove</span>
             </div>
@@ -977,31 +1147,6 @@ function render() {
 
           <div class="card" style="margin-top:14px;">
             <div class="card-header">
-              <span>자산 등록 (데모용)</span>
-              <span class="badge">Admin</span>
-            </div>
-            <div>
-              <div class="form-row">
-                <div class="form-field">
-                  <label class="label">자산ID</label>
-                  <input id="new-item-id" class="input" placeholder="예: X001-01" />
-                </div>
-                <div class="form-field">
-                  <label class="label">자산명</label>
-                  <input id="new-item-name" class="input" placeholder="예: 신형 장비" />
-                </div>
-              </div>
-              <button id="btn-add-item" class="btn btn-secondary">
-                자산 추가
-              </button>
-              <p class="small-tip">
-                실제 운영 시에는 관리자 전용 화면으로 분리하고, CSV/QR 연동으로 일괄 등록할 수 있습니다.
-              </p>
-            </div>
-          </div>
-
-          <div class="card" style="margin-top:14px;">
-            <div class="card-header">
               <span>엑셀(CSV) 일괄 등록</span>
               <span class="badge-soft">Bulk Import</span>
             </div>
@@ -1019,101 +1164,6 @@ function render() {
                 엑셀에서 <b>CSV(쉼표로 분리)</b>로 저장 후 업로드하세요. 컬럼: itemId,자산명
               </p>
             </div>
-          </div>
-
-          <div class="card" style="margin-top:14px;">
-            <div class="card-header">
-              <span>QR / 바코드 스캔</span>
-              <span class="badge-soft">Scan</span>
-            </div>
-            <div>
-              <div class="form-row">
-                <div class="form-field">
-                  <label class="label">스캔 시작</label>
-                  <button id="btn-start-scan" class="btn btn-primary" type="button">
-                    카메라 스캔 시작
-                  </button>
-                  <button id="btn-stop-scan" class="btn btn-outline" type="button" style="margin-left:6px;">
-                    중지
-                  </button>
-                </div>
-              </div>
-              <div class="form-row">
-                <div class="form-field">
-                  <label class="label">결과 / 수동 입력</label>
-                  <input id="qr-manual" class="input" placeholder="스캐너 입력 또는 수동 입력" />
-                  <button id="btn-apply-qr" class="btn btn-success" type="button" style="margin-top:6px;">
-                    선택 항목에 적용
-                  </button>
-                </div>
-              </div>
-              <div style="margin-top:8px;">
-                <video id="qr-video" style="width:100%; border:1px solid #1f2937; border-radius:6px;" muted playsinline></video>
-              </div>
-              <p class="small-tip" style="margin-top:6px;">
-                크롬/안드로이드에서 카메라 스캔을 사용하거나, 핸드스캐너로 입력 가능합니다.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <div class="card">
-            <div class="card-header">
-              <span>실습 기자재 현황</span>
-              <button id="btn-refresh" class="btn btn-outline" type="button">
-                새로고침
-              </button>
-            </div>
-            <div class="stats">
-              <div class="stat-box">
-                <div class="stat-label">총 자산</div>
-                <div class="stat-value" id="stat-total">-</div>
-              </div>
-              <div class="stat-box">
-                <div class="stat-label">대여중</div>
-                <div class="stat-value" id="stat-borrowed">-</div>
-              </div>
-              <div class="stat-box">
-                <div class="stat-label">고장</div>
-                <div class="stat-value" id="stat-damaged">-</div>
-              </div>
-              <div class="stat-box">
-                <div class="stat-label">분실</div>
-                <div class="stat-value" id="stat-lost">-</div>
-              </div>
-            </div>
-            <div>
-              <div class="label" style="margin-top:4px;">고장/분실 상위 자산</div>
-              <ul id="top-issue-list" style="padding-left:16px; margin-top:2px;"></ul>
-            </div>
-            <div id="item-table"></div>
-          </div>
-
-          <div class="card" style="margin-top:14px;">
-            <div class="card-header">
-              <span>최근 이력 (최대 80개)</span>
-            </div>
-            <div class="form-row" style="margin-bottom:8px;">
-              <div class="form-field">
-                <label class="label">학생 필터</label>
-                <select id="history-student-select" class="select">
-                  <option value="">전체 학생</option>
-                  ${studentOptionsAll}
-                </select>
-              </div>
-              <div class="form-field">
-                <label class="label">자산 필터</label>
-                <select id="history-item-select" class="select">
-                  <option value="">전체 자산</option>
-                  ${historyItemOptions}
-                </select>
-              </div>
-            </div>
-            <button id="btn-history-reset" class="btn btn-outline" type="button" style="margin-bottom:6px;">
-              필터 초기화
-            </button>
-            <ul id="history-list" class="history-list"></ul>
           </div>
         </div>
       </div>
@@ -1153,6 +1203,34 @@ function render() {
         </div>
       </div>
     </div>
+
+    <div id="tab-history" style="display:${activeTab === "history" ? "block" : "none"};">
+      <div class="card">
+        <div class="card-header">
+          <span>최근 이력 (최대 80개)</span>
+        </div>
+        <div class="form-row" style="margin-bottom:8px;">
+          <div class="form-field">
+            <label class="label">학생 필터</label>
+            <select id="history-student-select" class="select">
+              <option value="">전체 학생</option>
+              ${studentOptionsAll}
+            </select>
+          </div>
+          <div class="form-field">
+            <label class="label">자산 필터</label>
+            <select id="history-item-select" class="select">
+              <option value="">전체 자산</option>
+              ${historyItemOptions}
+            </select>
+          </div>
+        </div>
+        <button id="btn-history-reset" class="btn btn-outline" type="button" style="margin-bottom:6px;">
+          필터 초기화
+        </button>
+        <ul id="history-list" class="history-list"></ul>
+      </div>
+    </div>
   `;
 
   // --- 이벤트 바인딩 ---
@@ -1167,136 +1245,181 @@ function render() {
   const borrowGradeSelect = document.getElementById("borrow-grade-select");
   const borrowStudentSelect = document.getElementById("borrow-student-select");
 
-  function populateBorrowStudents(grade) {
-    borrowStudentSelect.innerHTML = '<option value="">학생 선택</option>';
-    if (!grade) return;
-    state.students
-      .filter((s) => String(s.grade) === String(grade))
-      .forEach((s) => {
-        const opt = document.createElement("option");
-        opt.value = s.studentId;
-        opt.textContent = `${s.grade}학년 ${s.classNo}반 ${s.name} (${s.studentId})`;
-        borrowStudentSelect.appendChild(opt);
-      });
+  if (borrowGradeSelect && borrowStudentSelect) {
+    function populateBorrowStudents(grade) {
+      borrowStudentSelect.innerHTML = '<option value="">학생 선택</option>';
+      if (!grade) return;
+      state.students
+        .filter((s) => String(s.grade) === String(grade))
+        .forEach((s) => {
+          const opt = document.createElement("option");
+          opt.value = s.studentId;
+          opt.textContent = `${s.grade}학년 ${s.classNo}반 ${s.name} (${s.studentId})`;
+          borrowStudentSelect.appendChild(opt);
+        });
+    }
+
+    borrowGradeSelect.addEventListener("change", (e) => {
+      populateBorrowStudents(e.target.value);
+    });
   }
 
-  borrowGradeSelect.addEventListener("change", (e) => {
-    populateBorrowStudents(e.target.value);
-  });
+  const btnBorrow = document.getElementById("btn-borrow");
+  if (btnBorrow && borrowStudentSelect) {
+    btnBorrow.addEventListener("click", () => {
+      const sid = borrowStudentSelect.value;
+      const iid = document.getElementById("borrow-item-select")?.value;
+      borrowItem(sid, iid);
+    });
+  }
 
-  document.getElementById("btn-borrow").addEventListener("click", () => {
-    const sid = borrowStudentSelect.value;
-    const iid = document.getElementById("borrow-item-select").value;
-    borrowItem(sid, iid);
-  });
+  const btnReturn = document.getElementById("btn-return");
+  if (btnReturn) {
+    btnReturn.addEventListener("click", () => {
+      const iid = document.getElementById("return-item-select")?.value;
+      const note = document.getElementById("return-note")?.value;
+      returnItem(iid, note);
+    });
+  }
 
-  document.getElementById("btn-return").addEventListener("click", () => {
-    const iid = document.getElementById("return-item-select").value;
-    const note = document.getElementById("return-note").value;
-    returnItem(iid, note);
-  });
+  const btnIssue = document.getElementById("btn-issue");
+  if (btnIssue) {
+    btnIssue.addEventListener("click", () => {
+      const iid = document.getElementById("issue-item-select")?.value;
+      const type = document.getElementById("issue-type")?.value;
+      const note = document.getElementById("issue-note")?.value;
+      reportIssue(iid, type, note);
+    });
+  }
 
-  document.getElementById("btn-issue").addEventListener("click", () => {
-    const iid = document.getElementById("issue-item-select").value;
-    const type = document.getElementById("issue-type").value;
-    const note = document.getElementById("issue-note").value;
-    reportIssue(iid, type, note);
-  });
+  const btnAddItem = document.getElementById("btn-add-item");
+  if (btnAddItem) {
+    btnAddItem.addEventListener("click", () => {
+      const iid = document.getElementById("new-item-id")?.value;
+      const name = document.getElementById("new-item-name")?.value;
+      addItem(iid, name);
+    });
+  }
 
-  document.getElementById("btn-add-item").addEventListener("click", () => {
-    const iid = document.getElementById("new-item-id").value;
-    const name = document.getElementById("new-item-name").value;
-    addItem(iid, name);
-  });
+  const btnRestore = document.getElementById("btn-restore");
+  if (btnRestore) {
+    btnRestore.addEventListener("click", () => {
+      const iid = document.getElementById("restore-item-select")?.value;
+      const note = document.getElementById("restore-note")?.value;
+      restoreItem(iid, note, "restore");
+    });
+  }
 
-  document.getElementById("btn-restore").addEventListener("click", () => {
-    const iid = document.getElementById("restore-item-select").value;
-    const note = document.getElementById("restore-note").value;
-    restoreItem(iid, note, "restore");
-  });
+  const btnRemove = document.getElementById("btn-remove-item");
+  if (btnRemove) {
+    btnRemove.addEventListener("click", () => {
+      const iid = document.getElementById("remove-item-select")?.value;
+      const note = document.getElementById("remove-note")?.value;
+      if (!iid) {
+        alert("삭제할 자산을 선택하세요.");
+        return;
+      }
+      const confirmed = confirm(`${iid} 자산을 삭제하시겠습니까?`);
+      if (!confirmed) return;
+      removeItem(iid, note);
+    });
+  }
 
-  document.getElementById("btn-remove-item").addEventListener("click", () => {
-    const iid = document.getElementById("remove-item-select").value;
-    const note = document.getElementById("remove-note").value;
-    if (!iid) {
-      alert("삭제할 자산을 선택하세요.");
-      return;
-    }
-    const confirmed = confirm(`${iid} 자산을 삭제하시겠습니까?`);
-    if (!confirmed) return;
-    removeItem(iid, note);
-  });
+  const btnBulk = document.getElementById("btn-bulk-upload");
+  if (btnBulk) {
+    btnBulk.addEventListener("click", () => {
+      const fileInput = document.getElementById("bulk-file");
+      const file = fileInput?.files?.[0];
+      bulkAddItemsFromCsv(file);
+    });
+  }
 
-  document.getElementById("btn-bulk-upload").addEventListener("click", () => {
-    const fileInput = document.getElementById("bulk-file");
-    const file = fileInput?.files?.[0];
-    bulkAddItemsFromCsv(file);
-  });
-
-  const qrVideo = document.getElementById("qr-video");
+  const qrVideo = document.getElementById("qr-video-feed");
   const qrManual = document.getElementById("qr-manual");
 
-  document.getElementById("btn-start-scan").addEventListener("click", () => {
-    if (!qrVideo) return;
-    startQrSession(qrVideo, (value) => {
-      if (qrManual) qrManual.value = value;
-      applyScannedItem(value);
+  const btnStartScan = document.getElementById("btn-start-scan");
+  if (btnStartScan) {
+    btnStartScan.addEventListener("click", () => {
+      startQrSession(qrVideo, (value) => {
+        if (qrManual) qrManual.value = value;
+        applyScannedItem(value);
+      });
     });
-  });
+  }
 
-  document.getElementById("btn-stop-scan").addEventListener("click", () => {
-    stopQrSession();
-  });
+  const btnStopScan = document.getElementById("btn-stop-scan");
+  if (btnStopScan) {
+    btnStopScan.addEventListener("click", () => {
+      stopQrSession();
+    });
+  }
 
-  document.getElementById("btn-apply-qr").addEventListener("click", () => {
-    applyScannedItem(qrManual ? qrManual.value : "");
-  });
+  const btnApplyQr = document.getElementById("btn-apply-qr");
+  if (btnApplyQr) {
+    btnApplyQr.addEventListener("click", () => {
+      applyScannedItem(qrManual ? qrManual.value : "");
+    });
+  }
 
-  document.getElementById("btn-refresh").addEventListener("click", () => {
-    renderStats();
-    renderHistory();
-    renderItemTable();
-  });
+  const btnRefresh = document.getElementById("btn-refresh");
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", () => {
+      renderStats();
+      renderHistory();
+      renderItemTable();
+    });
+  }
 
   // 히스토리 필터
   const histStudentSel = document.getElementById("history-student-select");
   const histItemSel = document.getElementById("history-item-select");
 
-  histStudentSel.addEventListener("change", renderHistory);
-  histItemSel.addEventListener("change", renderHistory);
+  if (histStudentSel && histItemSel) {
+    histStudentSel.addEventListener("change", renderHistory);
+    histItemSel.addEventListener("change", renderHistory);
 
-  document.getElementById("btn-history-reset").addEventListener("click", () => {
-    histStudentSel.value = "";
-    histItemSel.value = "";
-    renderHistory();
-  });
+    const btnHistReset = document.getElementById("btn-history-reset");
+    if (btnHistReset) {
+      btnHistReset.addEventListener("click", () => {
+        histStudentSel.value = "";
+        histItemSel.value = "";
+        renderHistory();
+      });
+    }
+  }
 
   // 지연 문자 생성
   const overdueSelect = document.getElementById("overdue-select");
   const overdueExtra = document.getElementById("overdue-extra");
   const smsOutput = document.getElementById("sms-output");
 
-  document.getElementById("btn-generate-sms").addEventListener("click", async () => {
-    const idx = overdueSelect.value;
-    if (idx === "" || !window.__overdueCache || !window.__overdueCache[idx]) {
-      alert("지연된 대여 항목을 먼저 선택하세요.");
-      return;
-    }
-    const info = window.__overdueCache[idx];
-    smsOutput.value = "문자를 생성하는 중입니다...";
-    const text = await generateOverdueSms(info, overdueExtra.value);
-    smsOutput.value = text;
-  });
+  const btnGenerateSms = document.getElementById("btn-generate-sms");
+  if (btnGenerateSms && overdueSelect && smsOutput) {
+    btnGenerateSms.addEventListener("click", async () => {
+      const idx = overdueSelect.value;
+      if (idx === "" || !window.__overdueCache || !window.__overdueCache[idx]) {
+        alert("지연된 대여 항목을 먼저 선택하세요.");
+        return;
+      }
+      const info = window.__overdueCache[idx];
+      smsOutput.value = "문자를 생성하는 중입니다...";
+      const text = await generateOverdueSms(info, overdueExtra ? overdueExtra.value : "");
+      smsOutput.value = text;
+    });
+  }
 
-  document.getElementById("btn-copy-sms").addEventListener("click", () => {
-    if (!smsOutput.value.trim()) {
-      alert("복사할 문자가 없습니다.");
-      return;
-    }
-    smsOutput.select();
-    document.execCommand("copy");
-    alert("문구가 복사되었습니다. 문자/알림 발송창에 붙여넣기 하세요.");
-  });
+  const btnCopySms = document.getElementById("btn-copy-sms");
+  if (btnCopySms && smsOutput) {
+    btnCopySms.addEventListener("click", () => {
+      if (!smsOutput.value.trim()) {
+        alert("복사할 문자가 없습니다.");
+        return;
+      }
+      smsOutput.select();
+      document.execCommand("copy");
+      alert("문구가 복사되었습니다. 문자/알림 발송창에 붙여넣기 하세요.");
+    });
+  }
 
   // 첫 렌더링 서브 파트
   renderStats();
