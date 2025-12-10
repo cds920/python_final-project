@@ -224,6 +224,33 @@ function reportIssue(itemId, issueType, note) {
   );
 }
 
+function restoreItem(itemId, note, restoreType = "restore") {
+  itemId = (itemId || "").trim();
+  note = (note || "").trim();
+
+  if (!itemId) {
+    alert("복구할 자산을 선택하세요.");
+    return;
+  }
+
+  const item = state.items.find((i) => i.itemId === itemId);
+  if (!item) {
+    alert(`자산 ${itemId} 가 존재하지 않습니다.`);
+    return;
+  }
+
+  if (!["lost", "damaged"].includes(item.status)) {
+    alert(`자산 ${itemId} 는 복구 대상 상태가 아닙니다. (현재 ${item.status})`);
+    return;
+  }
+
+  item.status = "available";
+  addTx({ itemId, action: restoreType, note });
+  saveState();
+  rerenderAll();
+  alert(`복구 완료: ${itemId}`);
+}
+
 function addItem(itemId, name) {
   itemId = (itemId || "").trim();
   name = (name || "").trim();
@@ -361,7 +388,8 @@ function renderHistory() {
     const tagSpan = document.createElement("span");
     tagSpan.classList.add("tag");
     if (row.action === "borrow") tagSpan.classList.add("tag-borrow");
-    else if (row.action === "return") tagSpan.classList.add("tag-return");
+    else if (row.action === "return" || row.action === "restore")
+      tagSpan.classList.add("tag-return");
     else tagSpan.classList.add("tag-damage");
     tagSpan.textContent = row.action;
     li.appendChild(tagSpan);
@@ -548,6 +576,14 @@ function render() {
     )
     .join("");
 
+  const restoreItemOptions = allItems
+    .filter((i) => i.status === "lost" || i.status === "damaged")
+    .map(
+      (i) =>
+        `<option value="${i.itemId}">${i.itemId} - ${i.group} [${i.status}]</option>`
+    )
+    .join("");
+
   const historyItemOptions = allItems
     .map(
       (i) =>
@@ -686,6 +722,31 @@ function render() {
             </div>
             <button id="btn-issue" class="btn btn-warning">
               신고 저장
+            </button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px;">
+          <div class="card-header">
+            <span>복구 처리</span>
+            <span class="badge">Restore</span>
+          </div>
+          <div>
+            <div class="form-row">
+              <div class="form-field">
+                <label class="label">복구 대상 자산</label>
+                <select id="restore-item-select" class="select">
+                  <option value="">고장/분실 자산</option>
+                  ${restoreItemOptions}
+                </select>
+              </div>
+              <div class="form-field">
+                <label class="label">메모 (선택)</label>
+                <input id="restore-note" class="input" placeholder="예: 수리 완료, 분실품 회수 등" />
+              </div>
+            </div>
+            <button id="btn-restore" class="btn btn-success">
+              복구 완료 처리
             </button>
           </div>
         </div>
@@ -857,6 +918,12 @@ function render() {
     const iid = document.getElementById("new-item-id").value;
     const name = document.getElementById("new-item-name").value;
     addItem(iid, name);
+  });
+
+  document.getElementById("btn-restore").addEventListener("click", () => {
+    const iid = document.getElementById("restore-item-select").value;
+    const note = document.getElementById("restore-note").value;
+    restoreItem(iid, note, "restore");
   });
 
   document.getElementById("btn-refresh").addEventListener("click", () => {
