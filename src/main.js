@@ -457,7 +457,26 @@ async function startQrSession(videoEl, onResult) {
     }
   } catch (err) {
     console.error(err);
-    alert("카메라 접근이 거부되었거나 사용할 수 없습니다. 스캐너나 수동 입력을 이용하세요.");
+    let reason = "";
+    const host = window.location.hostname;
+    const insecure =
+      !window.isSecureContext && host !== "localhost" && host !== "127.0.0.1";
+    if (err?.name === "NotAllowedError") {
+      reason = "사용자가 카메라 권한을 거부했습니다.";
+    } else if (err?.name === "NotFoundError") {
+      reason = "연결된 카메라가 없습니다.";
+    } else if (err?.name === "NotReadableError" || err?.name === "TrackStartError") {
+      reason = "다른 앱에서 카메라를 사용 중입니다.";
+    } else if (insecure) {
+      reason = "https(또는 localhost) 환경이 아니면 카메라 접근이 차단될 수 있습니다.";
+    } else if (err?.message) {
+      reason = err.message;
+    }
+    alert(
+      "카메라 접근이 거부되었거나 사용할 수 없습니다.\n" +
+        (reason ? `사유: ${reason}\n` : "") +
+        "① 브라우저 권한을 허용하고 새로고침\n② 다른 앱(줌/웹캠) 종료\n③ 가능하면 https 또는 localhost에서 접속\n④ 미작동 시 스캐너/수동 입력을 사용하세요."
+    );
   }
 }
 
