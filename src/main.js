@@ -95,6 +95,10 @@ let state = {
   tx: [], // {id, ts, studentId, itemId, action, note}
 };
 
+const uiState = {
+  activeTab: "manage", // manage | sms
+};
+
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
@@ -535,6 +539,7 @@ function rerenderAll() {
 
 function render() {
   const app = document.querySelector("#app");
+  const activeTab = uiState.activeTab || "manage";
 
   // 학년 옵션
   const gradeOptions = [1, 2, 3]
@@ -629,250 +634,277 @@ function render() {
       </div>
     </header>
 
-    <div class="grid">
-      <div>
-        <div class="card">
-          <div class="card-header">
-            <span>대여</span>
-            <span class="badge">Borrow</span>
+    <div class="tab-bar" style="margin:10px 0 6px; display:flex; gap:8px;">
+      <button
+        class="btn btn-outline tab-btn ${activeTab === "manage" ? "active" : ""}"
+        data-tab="manage"
+        style="${activeTab === "manage" ? "background:#111827;color:white;" : ""}"
+      >
+        자산 관리
+      </button>
+      <button
+        class="btn btn-outline tab-btn ${activeTab === "sms" ? "active" : ""}"
+        data-tab="sms"
+        style="${activeTab === "sms" ? "background:#111827;color:white;" : ""}"
+      >
+        지연 문자
+      </button>
+    </div>
+
+    <div id="tab-manage" style="display:${activeTab === "manage" ? "block" : "none"};">
+      <div class="grid">
+        <div>
+          <div class="card">
+            <div class="card-header">
+              <span>대여</span>
+              <span class="badge">Borrow</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">학년</label>
+                  <select id="borrow-grade-select" class="select">
+                    <option value="">학년 선택</option>
+                    ${gradeOptions}
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="label">학생 이름</label>
+                  <select id="borrow-student-select" class="select">
+                    <option value="">먼저 학년을 선택하세요</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">자산 선택</label>
+                  <select id="borrow-item-select" class="select">
+                    <option value="">대여 가능한 자산</option>
+                    ${borrowItemOptions}
+                  </select>
+                </div>
+              </div>
+              <button id="btn-borrow" class="btn btn-primary">
+                대여하기
+              </button>
+            </div>
           </div>
-          <div>
-            <div class="form-row">
-              <div class="form-field">
-                <label class="label">학년</label>
-                <select id="borrow-grade-select" class="select">
-                  <option value="">학년 선택</option>
-                  ${gradeOptions}
-                </select>
-              </div>
-              <div class="form-field">
-                <label class="label">학생 이름</label>
-                <select id="borrow-student-select" class="select">
-                  <option value="">먼저 학년을 선택하세요</option>
-                </select>
-              </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-header">
+              <span>반납</span>
+              <span class="badge">Return</span>
             </div>
-            <div class="form-row">
-              <div class="form-field">
-                <label class="label">자산 선택</label>
-                <select id="borrow-item-select" class="select">
-                  <option value="">대여 가능한 자산</option>
-                  ${borrowItemOptions}
-                </select>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">반납할 자산</label>
+                  <select id="return-item-select" class="select">
+                    <option value="">현재 대여중인 자산</option>
+                    ${returnItemOptions}
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="label">메모 (선택)</label>
+                  <input id="return-note" class="input" placeholder="상태, 비고 등" />
+                </div>
               </div>
+              <button id="btn-return" class="btn btn-success">
+                반납 처리
+              </button>
             </div>
-            <button id="btn-borrow" class="btn btn-primary">
-              대여하기
-            </button>
+          </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-header">
+              <span>고장 / 분실 신고</span>
+              <span class="badge">Damage / Loss</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">자산 선택</label>
+                  <select id="issue-item-select" class="select">
+                    <option value="">자산 선택</option>
+                    ${issueItemOptions}
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="label">유형</label>
+                  <select id="issue-type" class="select">
+                    <option value="damage">damage (고장)</option>
+                    <option value="loss">loss (분실)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">메모</label>
+                  <textarea id="issue-note" class="textarea" placeholder="고장/분실 상황 간단 기록"></textarea>
+                </div>
+              </div>
+              <button id="btn-issue" class="btn btn-warning">
+                신고 저장
+              </button>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-header">
+              <span>복구 처리</span>
+              <span class="badge">Restore</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">복구 대상 자산</label>
+                  <select id="restore-item-select" class="select">
+                    <option value="">고장/분실 자산</option>
+                    ${restoreItemOptions}
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label class="label">메모 (선택)</label>
+                  <input id="restore-note" class="input" placeholder="예: 수리 완료, 분실품 회수 등" />
+                </div>
+              </div>
+              <button id="btn-restore" class="btn btn-success">
+                복구 완료 처리
+              </button>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:14px;">
+            <div class="card-header">
+              <span>자산 등록 (데모용)</span>
+              <span class="badge">Admin</span>
+            </div>
+            <div>
+              <div class="form-row">
+                <div class="form-field">
+                  <label class="label">자산ID</label>
+                  <input id="new-item-id" class="input" placeholder="예: X001-01" />
+                </div>
+                <div class="form-field">
+                  <label class="label">자산명</label>
+                  <input id="new-item-name" class="input" placeholder="예: 신형 장비" />
+                </div>
+              </div>
+              <button id="btn-add-item" class="btn btn-secondary">
+                자산 추가
+              </button>
+              <p class="small-tip">
+                실제 운영 시에는 관리자 전용 화면으로 분리하고, CSV/QR 연동으로 일괄 등록할 수 있습니다.
+              </p>
+            </div>
           </div>
         </div>
 
-        <div class="card" style="margin-top:14px;">
-          <div class="card-header">
-            <span>반납</span>
-            <span class="badge">Return</span>
-          </div>
-          <div>
-            <div class="form-row">
-              <div class="form-field">
-                <label class="label">반납할 자산</label>
-                <select id="return-item-select" class="select">
-                  <option value="">현재 대여중인 자산</option>
-                  ${returnItemOptions}
-                </select>
+        <div>
+          <div class="card">
+            <div class="card-header">
+              <span>실습 기자재 현황</span>
+              <button id="btn-refresh" class="btn btn-outline" type="button">
+                새로고침
+              </button>
+            </div>
+            <div class="stats">
+              <div class="stat-box">
+                <div class="stat-label">총 자산</div>
+                <div class="stat-value" id="stat-total">-</div>
               </div>
-              <div class="form-field">
-                <label class="label">메모 (선택)</label>
-                <input id="return-note" class="input" placeholder="상태, 비고 등" />
+              <div class="stat-box">
+                <div class="stat-label">대여중</div>
+                <div class="stat-value" id="stat-borrowed">-</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">고장</div>
+                <div class="stat-value" id="stat-damaged">-</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">분실</div>
+                <div class="stat-value" id="stat-lost">-</div>
               </div>
             </div>
-            <button id="btn-return" class="btn btn-success">
-              반납 처리
-            </button>
+            <div>
+              <div class="label" style="margin-top:4px;">고장/분실 상위 자산</div>
+              <ul id="top-issue-list" style="padding-left:16px; margin-top:2px;"></ul>
+            </div>
+            <div id="item-table"></div>
           </div>
-        </div>
 
-        <div class="card" style="margin-top:14px;">
-          <div class="card-header">
-            <span>고장 / 분실 신고</span>
-            <span class="badge">Damage / Loss</span>
-          </div>
-          <div>
-            <div class="form-row">
+          <div class="card" style="margin-top:14px;">
+            <div class="card-header">
+              <span>최근 이력 (최대 80개)</span>
+            </div>
+            <div class="form-row" style="margin-bottom:8px;">
               <div class="form-field">
-                <label class="label">자산 선택</label>
-                <select id="issue-item-select" class="select">
-                  <option value="">자산 선택</option>
-                  ${issueItemOptions}
+                <label class="label">학생 필터</label>
+                <select id="history-student-select" class="select">
+                  <option value="">전체 학생</option>
+                  ${studentOptionsAll}
                 </select>
               </div>
               <div class="form-field">
-                <label class="label">유형</label>
-                <select id="issue-type" class="select">
-                  <option value="damage">damage (고장)</option>
-                  <option value="loss">loss (분실)</option>
+                <label class="label">자산 필터</label>
+                <select id="history-item-select" class="select">
+                  <option value="">전체 자산</option>
+                  ${historyItemOptions}
                 </select>
               </div>
             </div>
-            <div class="form-row">
-              <div class="form-field">
-                <label class="label">메모</label>
-                <textarea id="issue-note" class="textarea" placeholder="고장/분실 상황 간단 기록"></textarea>
-              </div>
-            </div>
-            <button id="btn-issue" class="btn btn-warning">
-              신고 저장
+            <button id="btn-history-reset" class="btn btn-outline" type="button" style="margin-bottom:6px;">
+              필터 초기화
             </button>
-          </div>
-        </div>
-
-        <div class="card" style="margin-top:14px;">
-          <div class="card-header">
-            <span>복구 처리</span>
-            <span class="badge">Restore</span>
-          </div>
-          <div>
-            <div class="form-row">
-              <div class="form-field">
-                <label class="label">복구 대상 자산</label>
-                <select id="restore-item-select" class="select">
-                  <option value="">고장/분실 자산</option>
-                  ${restoreItemOptions}
-                </select>
-              </div>
-              <div class="form-field">
-                <label class="label">메모 (선택)</label>
-                <input id="restore-note" class="input" placeholder="예: 수리 완료, 분실품 회수 등" />
-              </div>
-            </div>
-            <button id="btn-restore" class="btn btn-success">
-              복구 완료 처리
-            </button>
-          </div>
-        </div>
-
-        <div class="card" style="margin-top:14px;">
-          <div class="card-header">
-            <span>자산 등록 (데모용)</span>
-            <span class="badge">Admin</span>
-          </div>
-          <div>
-            <div class="form-row">
-              <div class="form-field">
-                <label class="label">자산ID</label>
-                <input id="new-item-id" class="input" placeholder="예: X001-01" />
-              </div>
-              <div class="form-field">
-                <label class="label">자산명</label>
-                <input id="new-item-name" class="input" placeholder="예: 신형 장비" />
-              </div>
-            </div>
-            <button id="btn-add-item" class="btn btn-secondary">
-              자산 추가
-            </button>
-            <p class="small-tip">
-              실제 운영 시에는 관리자 전용 화면으로 분리하고, CSV/QR 연동으로 일괄 등록할 수 있습니다.
-            </p>
+            <ul id="history-list" class="history-list"></ul>
           </div>
         </div>
       </div>
+    </div>
 
-      <div>
-        <div class="card">
-          <div class="card-header">
-            <span>실습 기자재 현황</span>
-            <button id="btn-refresh" class="btn btn-outline" type="button">
-              새로고침
-            </button>
-          </div>
-          <div class="stats">
-            <div class="stat-box">
-              <div class="stat-label">총 자산</div>
-              <div class="stat-value" id="stat-total">-</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">대여중</div>
-              <div class="stat-value" id="stat-borrowed">-</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">고장</div>
-              <div class="stat-value" id="stat-damaged">-</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">분실</div>
-              <div class="stat-value" id="stat-lost">-</div>
-            </div>
-          </div>
-          <div>
-            <div class="label" style="margin-top:4px;">고장/분실 상위 자산</div>
-            <ul id="top-issue-list" style="padding-left:16px; margin-top:2px;"></ul>
-          </div>
-          <div id="item-table"></div>
+    <div id="tab-sms" style="display:${activeTab === "sms" ? "block" : "none"};">
+      <div class="card">
+        <div class="card-header">
+          <span>지연 대여 안내 문자 (AI)</span>
+          <span class="badge-soft">Overdue SMS</span>
         </div>
-
-        <div class="card" style="margin-top:14px;">
-          <div class="card-header">
-            <span>지연 대여 안내 문자 (AI)</span>
-            <span class="badge-soft">Overdue SMS</span>
-          </div>
-          <div>
-            <div class="form-row">
-              <div class="form-field">
-                <label class="label">지연 항목 선택 (3일 이상)</label>
-                <select id="overdue-select" class="select">
-                  ${overdueOptions}
-                </select>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-field">
-                <label class="label">추가 안내 사항 (선택)</label>
-                <input id="overdue-extra" class="input" placeholder="예: 내일 5교시까지 반납, 미반납 시 생활기록부 반영 등" />
-              </div>
-            </div>
-            <button id="btn-generate-sms" class="btn btn-primary" type="button">
-              AI로 문자 생성
-            </button>
-            <button id="btn-copy-sms" class="btn btn-outline" type="button" style="margin-left:6px;">
-              내용 복사
-            </button>
-            <p class="small-tip" style="margin-top:6px;">
-              실제 발송은 문자/알림 시스템에서 직접 하며, 이 화면에서는 <b>문구만 자동 작성</b>합니다.
-            </p>
-            <textarea id="sms-output" class="sms-output" placeholder="여기에 생성된 문자가 표시됩니다."></textarea>
-          </div>
-        </div>
-
-        <div class="card" style="margin-top:14px;">
-          <div class="card-header">
-            <span>최근 이력 (최대 80개)</span>
-          </div>
-          <div class="form-row" style="margin-bottom:8px;">
+        <div>
+          <div class="form-row">
             <div class="form-field">
-              <label class="label">학생 필터</label>
-              <select id="history-student-select" class="select">
-                <option value="">전체 학생</option>
-                ${studentOptionsAll}
-              </select>
-            </div>
-            <div class="form-field">
-              <label class="label">자산 필터</label>
-              <select id="history-item-select" class="select">
-                <option value="">전체 자산</option>
-                ${historyItemOptions}
+              <label class="label">지연 항목 선택 (3일 이상)</label>
+              <select id="overdue-select" class="select">
+                ${overdueOptions}
               </select>
             </div>
           </div>
-          <button id="btn-history-reset" class="btn btn-outline" type="button" style="margin-bottom:6px;">
-            필터 초기화
+          <div class="form-row">
+            <div class="form-field">
+              <label class="label">추가 안내 사항 (선택)</label>
+              <input id="overdue-extra" class="input" placeholder="예: 내일 5교시까지 반납, 미반납 시 생활기록부 반영 등" />
+            </div>
+          </div>
+          <button id="btn-generate-sms" class="btn btn-primary" type="button">
+            AI로 문자 생성
           </button>
-          <ul id="history-list" class="history-list"></ul>
+          <button id="btn-copy-sms" class="btn btn-outline" type="button" style="margin-left:6px;">
+            내용 복사
+          </button>
+          <p class="small-tip" style="margin-top:6px;">
+            실제 발송은 문자/알림 시스템에서 직접 하며, 이 화면에서는 <b>문구만 자동 작성</b>합니다.
+          </p>
+          <textarea id="sms-output" class="sms-output" placeholder="여기에 생성된 문자가 표시됩니다."></textarea>
         </div>
       </div>
     </div>
   `;
 
   // --- 이벤트 바인딩 ---
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      uiState.activeTab = btn.dataset.tab || "manage";
+      rerenderAll();
+    });
+  });
 
   // 학년 선택 → 학생 목록 갱신
   const borrowGradeSelect = document.getElementById("borrow-grade-select");
